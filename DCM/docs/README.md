@@ -13,7 +13,7 @@ DCM/
 ├── core/                   # Core logic and data models
 │   ├── \_\_init\_\_.py
 │   ├── user_management.py  # Register and Login stores up to __10__ users
-|
+│
 ├── storage/                # Local persistence
 │   ├── users.json          # Store the local user data
 │

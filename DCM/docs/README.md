@@ -2,6 +2,7 @@
 
 This is the DCM subfolder it is comprised of the following directories:
 
+```bash
 DCM/
 │
 ├── main.py                 # Entry point – launches the GUI
@@ -22,3 +23,4 @@ DCM/
 │
 └── docs/                   # Documentation, screenshots, design notes
     ├── README.md           # This document
+```

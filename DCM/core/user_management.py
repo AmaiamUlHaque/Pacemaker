@@ -65,7 +65,7 @@ def list_users() -> List[str]:
     give a list of the all the users currently stored
     """
     
-    return list(_loadUsers().keys)
+    return list(_loadUsers().keys())
 
 def remove_user(username: str) -> bool:
     """

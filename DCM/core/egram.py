@@ -1,4 +1,4 @@
-from collections import dequeue
+from collections import deque
 from dataclasses import dataclass 
 from typing import Dict, List, Deque 
 import time 
@@ -17,12 +17,12 @@ class EgramBuffer:
     """
     def __init__(self, maxlen: int=1000):
         self.buffers: Dict[str, Deque[EgramSample]] = {
-            "atrial": dequeue(maxlen=maxlen),
-            "ventricular": dequeue(maxlen=maxlen),
-            "surface":dequeue(maxlen=maxlen)
+            "atrial": deque(maxlen=maxlen),
+            "ventricular": deque(maxlen=maxlen),
+            "surface":deque(maxlen=maxlen)
         }
 
-    def add_sample(self, channel:str, timestamp:float = None, value:float) -> None:
+    def add_sample(self, channel:str, value:float, timestamp : float = None  ) -> None:
         if channel not in self.buffers:
             raise ValueError(f"Not a Valid Chanel")
         if timestamp is None:
@@ -43,7 +43,7 @@ class EgramBuffer:
 
 
     def clear(self)-> None:
-        for ch in buffers:
+        for ch in self.buffers:
             self.buffers[ch].clear()
 
         

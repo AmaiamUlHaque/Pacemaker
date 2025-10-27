@@ -4,7 +4,7 @@ import os
 from typing import Optional, Dict, List
 
 #Path to the file used to store users, constant
-USER_FILE = os.path.join(os.path.dirname(__file__)),"..","storage", "users.json"
+USER_FILE = os.path.join(os.path.dirname(__file__), "..", "storage", "users.json")
 
 #max number of users allow in the local system
 MAX_USERS = 10
@@ -18,7 +18,10 @@ def _loadUsers() -> Dict[str, str]:
     if not os.path.exists(USER_FILE):
         return {}
     with open(USER_FILE, "r") as f:
-        return json.load(f)
+        content = f.read().strip()
+        if not content:
+            return {}
+        return json.loads(content)
 
 def _saveUsers(users: Dict[str, str]) -> None:
     """

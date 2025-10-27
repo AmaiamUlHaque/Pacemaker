@@ -3,7 +3,7 @@ from typing import Dict, Any
 from dataclasses import dataclass, asdict
 import os
 
-PARAMS_FILE = os.path.join(os.path.dirname(__file__), "..","storage", "params.json")
+PARAMS_FILE = os.path.join(os.path.dirname(__file__), "..", "storage", "params.json")
 
 @dataclass
 class Parameters():

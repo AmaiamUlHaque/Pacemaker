@@ -13,19 +13,19 @@ def clear_file():
     if os.path.exists(TEST_USER_FILE):
         os.remove(TEST_USER_FILE)
 
-def test_register_and_autheticate():
+def test_register_and_authenticate(): #UM-1
     assert user_management.register_user("diego", "abc") is True
     assert user_management.authenticate_user("diego", "abc") is True
     assert user_management.register_user("diego", "123") is False
     assert user_management.authenticate_user("diego", "124") is False
     assert user_management.authenticate_user ("bob", "123") is False
 
-def test_MAX_USER_LIMIT():
+def test_MAX_USER_LIMIT(): #UM-2
     for i in range(user_management.MAX_USERS):
         assert user_management.register_user(f"user{i}", "pass") is True
     assert user_management.register_user("11", "pass") is False #11 user should fail
-    
-def test_list_and_remove_user():
+
+def test_list_and_remove_user(): #UM-3
     user_management.register_user("charlie", "123")
     assert "charlie" in user_management.list_users()
 
@@ -36,7 +36,7 @@ def test_list_and_remove_user():
     assert user_management.remove_user("charlie") is False
 
 
-def test_reset_users():
+def test_reset_users(): #UM-4s
     user_management.register_user("temp", "pw")
     assert "temp" in user_management.list_users()
 

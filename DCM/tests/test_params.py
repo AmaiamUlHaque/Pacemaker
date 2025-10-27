@@ -14,7 +14,7 @@ def cleanup():
     if os.path.exists(TEST_FILE):
         os.remove(TEST_FILE)
 
-def test_valid_save_and_load():
+def test_valid_save_and_load(): #PAR-1
     p = params.Parameters(
         LRL=60,
         URL=120,
@@ -32,7 +32,7 @@ def test_valid_save_and_load():
     loaded = params.load_parameters()
     assert loaded == p
     
-def test_invalid_LRL():
+def test_invalid_LRL(): #PAR-2
     p = params.Parameters(
         LRL=20, #too low
         URL=120,
@@ -46,7 +46,7 @@ def test_invalid_LRL():
     with pytest.raises(ValueError):
         p.validate()
 
-def test_URL_higher_than_LRL():
+def test_URL_higher_than_LRL(): #PAR-3
     p = params.Parameters(
         LRL=100,
         URL=90,
@@ -60,7 +60,7 @@ def test_URL_higher_than_LRL():
     with pytest.raises(ValueError):
         p.validate()
 
-def test_invalid_amp():
+def test_invalid_amp(): #PAR-4
     p = params.Parameters(
         LRL=60,
         URL=120,

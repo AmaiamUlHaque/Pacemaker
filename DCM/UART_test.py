@@ -2,7 +2,7 @@ import serial
 import struct
 import time 
 
-PORT = 'COM3'  # Change as needed
+PORT = 'COM4'  # Change as needed
 BAUDRATE = 115200
 TIMEOUT = 1  # seconds
 

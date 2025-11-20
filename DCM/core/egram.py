@@ -3,6 +3,10 @@ from dataclasses import dataclass
 from typing import Dict, List, Deque 
 import time 
 
+CHANNEL_MAP = {
+    0: "atrial",
+    1: "ventricular"
+}
 @dataclass
 class EgramSample:
     timestamp:float
@@ -19,17 +23,24 @@ class EgramBuffer:
         self.buffers: Dict[str, Deque[EgramSample]] = {
             "atrial": deque(maxlen=maxlen),
             "ventricular": deque(maxlen=maxlen),
-            "surface":deque(maxlen=maxlen)
         }
 
-    def add_sample(self, channel:str, value:float, timestamp : float = None  ) -> None:
+    def add_sample(self, channel:str | int, value: int, timestamp : float = None  ) -> None:
+        if isinstance(channel,int):
+            if channel not in CHANNEL_MAP:
+                raise ValueError(f"Not a Valid Chanel")
+            channel = CHANNEL_MAP[channel]
         if channel not in self.buffers:
-            raise ValueError(f"Not a Valid Chanel")
+            raise ValueError(f"Invalid Channel")
         if timestamp is None:
             timestamp = time.time()
         sample = EgramSample(timestamp=timestamp, channel=channel, value=value)
         self.buffers[channel].append(sample)
 
+    def add_samples(self, samples: List[tuple]):
+        for ch, val, ts in samples:
+            self.add_sample(ch,val,ts)
+    
     def get_recent(self, channel:str, n:int) -> List[EgramSample]:
         if channel not in self.buffers:
             raise ValueError(f"{channel} is Not a Valid Chanel")

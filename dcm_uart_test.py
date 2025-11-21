@@ -1,6 +1,6 @@
 import time
 import argparse
-from .DCM.core.serial_interface import SerialInterface
+from DCM.core.serial_interface import SerialInterface
 
 # Example params for testing the microcontroller firmware
 TEST_PARAMS = {
@@ -69,7 +69,7 @@ def main():
 
 
 #to run first find the uart port thebn send params using
-#python3 dcm_cli_uart_test.py /dev/tty.usbmodem1101 --send
+#python3 dcm_art_test.py /dev/tty.usbmodem1101 --send
 #to check if ure sending data correctly
 #python3 dcm_cli_uart_test.py /dev/tty.usbmodem1101 --egram
 

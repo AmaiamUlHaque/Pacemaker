@@ -79,18 +79,54 @@ class SerialInterface:
     def _read_loop(self):
         buffer = bytearray()
         while self.running:
-            if self.serial.in_waiting:
-                byte = self.serial.read(1)
-                if byte:
-                    buffer.extend(byte)
-                    if END_BYTE in buffer:
-                        packet, _, remainder = buffer.partition(bytes([END_BYTE]))
-                        packet += bytes([END_BYTE])
-                        buffer = remainder
-                        self._process_packet(packet)
+            try:
+                if self.serial.in_waiting:
+                    data = self.serial.read(self.serial.in_waiting)
+                    if data:
+                        print(f"[DEBUG] RAW READ: {data.hex()}")
+                        buffer.extend(data)
+                        
+                        while True:
+                            # 1. Find START_BYTE
+                            if not buffer:
+                                break
+                                
+                            if buffer[0] != START_BYTE:
+                                try:
+                                    start_idx = buffer.index(START_BYTE)
+                                    print(f"[DEBUG] Discarding garbage: {buffer[:start_idx].hex()}")
+                                    del buffer[:start_idx]
+                                except ValueError:
+                                    # No start byte found yet, discard all
+                                    print(f"[DEBUG] Discarding garbage: {buffer.hex()}")
+                                    buffer.clear()
+                                    break
+                            
+                            # 2. Check if we have enough for header (START, CMD, LEN)
+                            if len(buffer) < 3:
+                                break
+                                
+                            payload_len = buffer[2]
+                            total_len = 3 + payload_len + 2 # Header(3) + Payload(N) + Checksum(1) + End(1)
+                            
+                            # 3. Check if we have full packet
+                            if len(buffer) < total_len:
+                                break
+                                
+                            # 4. Extract packet
+                            packet = buffer[:total_len]
+                            del buffer[:total_len]
+                            
+                            self._process_packet(packet)
+                            
+            except Exception as e:
+                print(f"[ERROR] Serial read error: {e}")
+                time.sleep(1)
+                
             time.sleep(0.001)
     
     def _process_packet(self,packet):
+        print(f"[DEBUG] Processing packet: {packet.hex()}")
         if len(packet)<5:
             return
         if packet[0] != START_BYTE:
@@ -99,19 +135,22 @@ class SerialInterface:
         length = packet[2]
         payload = packet[3: 3+ length]
         recv_checksum = packet[3+length]
-        if len(packet) < 5 + length:
-            print("PACKET LENGTH MISMATCH")
-            return
-        calc_checksum = 0
         
+        # Verify End Byte
+        if packet[-1] != END_BYTE:
+            print(f"[ERROR] Invalid End Byte: {hex(packet[-1])}")
+            return
+
+        calc_checksum = 0
         for b in packet[1:3+length]:
             calc_checksum ^= b
         
         if recv_checksum != calc_checksum:
-            print("CHECKSUM ERROR")
+            print(f"[ERROR] Checksum mismatch! Recv: {hex(recv_checksum)}, Calc: {hex(calc_checksum)}")
             return
         
         if cmd == 0xAA:
+            print("[DEBUG] Received ACK packet")
             if self.ack_callback:
                 self.ack_callback()
         elif cmd == CMD_SEND_PARAMS:

@@ -6,6 +6,7 @@ PORT = 'COM4'  # Change as needed
 BAUDRATE = 115200
 TIMEOUT = 1  # seconds
 
+
 ser = serial.Serial(PORT, BAUDRATE, timeout=TIMEOUT)
 print(f"Opened serial port: {ser.name}")
 

@@ -60,6 +60,7 @@ class SerialInterface:
         # Helper to safely get value
         def get_val(key, default=0):
             return p.get(key, default)
+    
 
         values = [
             mode_id_val,                            # MODE
@@ -83,14 +84,12 @@ class SerialInterface:
             get_val("rate_smoothing")               # RATE_SMOOTHING
         ]
         
-     
         
-        values = [int(v) if not isinstance(v, float) else int(v) for v in values]
+        #values = [int(v) if not isinstance(v, float) else int(v) for v in values]
      
-
         print(f"[DEBUG] Packing parameters: {values}")
         # payload = struct.pack('<19H', *values)
-        payload = struct.pack('<19B', *values)
+        payload = struct.pack('<B H H f f H H B B H H B H B B B B B B', *values)
         packet = self._build_packet(CMD_SEND_PARAMS,payload)
         print(f"[DEBUG] Sending Parameter Packet: {packet.hex()}")
         self.serial.write(packet)

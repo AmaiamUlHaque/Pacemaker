@@ -3,27 +3,30 @@ import argparse
 from DCM.core.serial_interface import SerialInterface
 
 # Example params for testing the microcontroller firmware
+# Example params for testing the microcontroller firmware
 TEST_PARAMS = {
-    "MODE": 3,                  # Example mode (VVI)
+    # "MODE" is handled separately in send_parameters
     "ARP": 250,
     "VRP": 320,
-    "ATR_AMPLITUDE": 3.0,
-    "VENT_AMPLITUDE": 3.5,
-    "ATR_PULSEWIDTH": 5,
-    "VENT_PULSEWIDTH": 6,
-    "ATR_CMP_REF_PWM": 1200,
-    "VENT_CMP_REF_PWM": 1300,
-    "REACTION_TIME": 20,
-    "RECOVERY_TIME": 10,
+    "atrial_amp": 3.0,
+    "ventricular_amp": 3.5,
+    "atrial_width": 5,          # Note: serial_interface casts to int. If this is ms, 5ms.
+    "ventricular_width": 6,
+    "atr_cmp_ref_pwm": 1200,
+    "vent_cmp_ref_pwm": 1300,
+    "reaction_time": 20,
+    "recovery_time": 10,
     "PVARP": 200,
-    "FIXED_AV_DELAY": 150,
-    "RESPONSE_FACTOR": 8,
-    "ACTIVITY_THRESHOLD": 3,
-    "UPPER_RATE_LIMIT": 150,
-    "LOWER_RATE_LIMIT": 60,
-    "MAXIMUM_SENSOR_RATE": 160,
-    "RATE_SMOOTHING": 5
+    "AV_delay": 150,            # FIXED_AV_DELAY -> AV_delay
+    "response_factor": 8,
+    "activity_threshold": 3,
+    "URL": 150,                 # UPPER_RATE_LIMIT -> URL
+    "LRL": 60,                  # LOWER_RATE_LIMIT -> LRL
+    "MSR": 160,                 # MAXIMUM_SENSOR_RATE -> MSR
+    "rate_smoothing": 5
 }
+
+TEST_MODE_ID = 3 # VVI
 
 def on_ack():
     print("[MCU] ACK received")
@@ -51,7 +54,7 @@ def main():
 
     if args.send:
         print("[INFO] Sending test parameters to microcontroller...")
-        iface.send_parameters(TEST_PARAMS)
+        iface.send_parameters(TEST_PARAMS, mode_id_val=TEST_MODE_ID)
 
     if args.egram:
         print("[INFO] Requesting EGRAM data stream from microcontroller...")

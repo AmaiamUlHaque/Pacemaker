@@ -47,33 +47,52 @@ class SerialInterface:
         return packet
 
     #public api
-    def send_parameters(self,params):
+    def send_parameters(self, params, mode_id_val=0):
         """
-        params = dict containing 19 keys matching the simulink model
+        params = Parameters object or dict containing keys matching params.py
+        mode_id_val = Integer ID of the mode (from modes.py)
         """ 
+        # Handle Parameters object
+        if hasattr(params, 'to_dict'):
+            p = params.to_dict()
+        else:
+            p = params
+
+        # Helper to safely get value
+        def get_val(key, default=0):
+            return p.get(key, default)
+
         values = [
-            params["MODE"],
-            params["ARP"],
-            params["VRP"],
-            int(params["ATR_AMPLITUDE"]*10),
-            int(params["VENT_AMPLITUDE"]*10),
-            params["ATR_PULSEWIDTH"],
-            params["VENT_PULSEWIDTH"],
-            params["ATR_CMP_REF_PWM"],
-            params["VENT_CMP_REF_PWM"],
-            params["REACTION_TIME"],
-            params["RECOVERY_TIME"],
-            params["PVARP"],
-            params["FIXED_AV_DELAY"],
-            params["RESPONSE_FACTOR"],
-            params["ACTIVITY_THRESHOLD"],
-            params["UPPER_RATE_LIMIT"],
-            params["LOWER_RATE_LIMIT"],
-            params["MAXIMUM_SENSOR_RATE"],
-            params["RATE_SMOOTHING"]
+            mode_id_val,                            # MODE
+            get_val("ARP"),                         # ARP
+            get_val("VRP"),                         # VRP
+            int(get_val("atrial_amp")  ),        # ATR_AMPLITUDE
+            int(get_val("ventricular_amp") ),   # VENT_AMPLITUDE
+            get_val("atrial_width"),                # ATR_PULSEWIDTH
+            get_val("ventricular_width"),           # VENT_PULSEWIDTH
+            get_val("atr_cmp_ref_pwm"),             # ATR_CMP_REF_PWM
+            get_val("vent_cmp_ref_pwm"),            # VENT_CMP_REF_PWM
+            get_val("reaction_time"),               # REACTION_TIME
+            get_val("recovery_time"),               # RECOVERY_TIME
+            get_val("PVARP"),                       # PVARP
+            get_val("AV_delay"),                    # FIXED_AV_DELAY
+            get_val("response_factor"),             # RESPONSE_FACTOR
+            get_val("activity_threshold"),          # ACTIVITY_THRESHOLD
+            get_val("URL"),                         # UPPER_RATE_LIMIT
+            get_val("LRL"),                         # LOWER_RATE_LIMIT
+            get_val("MSR"),                         # MAXIMUM_SENSOR_RATE
+            get_val("rate_smoothing")               # RATE_SMOOTHING
         ]
+        
+     
+        
+        values = [int(v) if not isinstance(v, float) else int(v) for v in values]
+     
+
+        print(f"[DEBUG] Packing parameters: {values}")
         payload = struct.pack("<19H", *values)
         packet = self._build_packet(CMD_SEND_PARAMS,payload)
+        print(f"[DEBUG] Sending Parameter Packet: {packet.hex()}")
         self.serial.write(packet)
     
     def _read_loop(self):
@@ -156,6 +175,7 @@ class SerialInterface:
         elif cmd == CMD_SEND_PARAMS:
             ack = self._build_packet(0xAA, b"")
             if self.serial:
+                print(f"[DEBUG] Sending ACK: {ack.hex()}")
                 self.serial.write(ack)
         elif cmd == 0xE0:
             if self.egram_callback:

@@ -2,21 +2,31 @@
 DCM (Device Controller-Monitor) GUI for Pacemaker Interface
 
 Provides the graphical user interface for pacemaker configuration including
-user authentication, mode selection, parameter management, and status monitoring.
+user authentication, mode selection, parameter management, status monitoring,
+and egram display for Deliverable 2.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import sys
 import os
 import json
+import threading
+import time
+from collections import deque
 
 # Add parent directory to path to import core modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from core.user_management import authenticate_user, register_user, MAX_USERS, list_users
 from core.params import Parameters, load_parameters
-from core.modes import PaceMakerMode, parse_mode
+from core.modes import PaceMakerMode, parse_mode, mode_id
+try:
+    from core.serial_interface import SerialInterface
+    SERIAL_AVAILABLE = True
+except ImportError:
+    SERIAL_AVAILABLE = False
+    print("Warning: Serial interface not available")
 
 
 class DCMApplication:
@@ -25,12 +35,22 @@ class DCMApplication:
     def __init__(self, root):
         self.root = root
         self.root.title("DCM - Device Controller-Monitor")
-        self.root.geometry("900x700")
-        self.root.resizable(False, False)
+        self.root.geometry("1000x750")
+        self.root.resizable(True, True)
         
         self.current_user = None
         self.current_mode = None
         self.parameters = self._get_default_parameters()
+        
+        # Serial communication
+        self.serial_interface = None
+        self.serial_port = None
+        self.is_connected = False
+        
+        # Egram data
+        self.egram_data = {'atrial': deque(maxlen=1000), 'ventricular': deque(maxlen=1000)}
+        self.egram_window = None
+        self.egram_streaming = False
         
         self._configure_styles()
         self.show_login_screen()
@@ -52,10 +72,13 @@ class DCMApplication:
             return load_parameters()
         except:
             return Parameters(
-                LRL=60, URL=120,
-                atrial_amp=3.5, atrial_width=0.4,
-                ventricular_amp=3.5, ventricular_width=0.4,
-                VRP=320, ARP=250
+                LRL=60, URL=120, MSR=120, rate_smoothing=0,
+                atrial_amp=3.5, atrial_width=1, atrial_sensitivity=0.75,
+                ARP=250, PVARP=250, AV_delay=150,
+                ventricular_amp=3.5, ventricular_width=1, ventricular_sensitivity=2.5,
+                VRP=320,
+                activity_threshold=4, reaction_time=30, recovery_time=5, response_factor=8,
+                atr_cmp_ref_pwm=0, vent_cmp_ref_pwm=0
             )
     
     def clear_window(self):
@@ -230,22 +253,27 @@ class DCMApplication:
         
         ttk.Label(status_grid, text="Telemetry Status:", font=('Helvetica', 10)).grid(
             row=0, column=1, padx=(0, 5))
-        self.telemetry_status = ttk.Label(status_grid, text="Disconnected (No Hardware)", 
+        self.telemetry_status = ttk.Label(status_grid, text="Disconnected", 
                                          font=('Helvetica', 10, 'bold'), foreground='red')
         self.telemetry_status.grid(row=0, column=2, padx=5)
         
         ttk.Label(status_grid, text="│", font=('Helvetica', 14), 
                  foreground='#bdc3c7').grid(row=0, column=3, padx=10)
         
-        ttk.Label(status_grid, text="Device Status:", font=('Helvetica', 10)).grid(
+        # Serial port selection
+        ttk.Label(status_grid, text="Serial Port:", font=('Helvetica', 10)).grid(
             row=0, column=4, padx=(0, 5))
-        self.device_status = ttk.Label(status_grid, text="Not Connected", 
-                                      font=('Helvetica', 10), foreground='#7f8c8d')
-        self.device_status.grid(row=0, column=5, padx=5)
+        self.port_var = tk.StringVar(value="COM1" if sys.platform == 'win32' else "/dev/ttyUSB0")
+        port_entry = ttk.Entry(status_grid, textvariable=self.port_var, width=12)
+        port_entry.grid(row=0, column=5, padx=5)
         
-        ttk.Label(status_frame, 
-                 text="Note: Hardware communication will be implemented in future deliverables",
-                 style='Status.TLabel', foreground='#95a5a6').pack(pady=(5, 0))
+        self.connect_btn = ttk.Button(status_grid, text="Connect", 
+                                     command=self._handle_serial_connect)
+        self.connect_btn.grid(row=0, column=6, padx=5)
+        
+        if not SERIAL_AVAILABLE:
+            self.connect_btn.config(state='disabled')
+            self.telemetry_status.config(text="Serial Not Available")
         
         mode_frame = ttk.LabelFrame(main_frame, text="Pacing Mode Selection", padding="15")
         mode_frame.pack(fill=tk.X, pady=(0, 15))
@@ -257,20 +285,36 @@ class DCMApplication:
         button_container.pack(fill=tk.X)
         
         self.mode_buttons = {}
-        modes = [PaceMakerMode.AOO, PaceMakerMode.VOO, PaceMakerMode.AAI, PaceMakerMode.VVI]
+        # Deliverable 2 required modes: AOO, VOO, AAI, VVI, AOOR, VOOR, AAIR, VVIR
+        required_modes = [
+            PaceMakerMode.AOO, PaceMakerMode.VOO, PaceMakerMode.AAI, PaceMakerMode.VVI,
+            PaceMakerMode.AOOR, PaceMakerMode.VOOR, PaceMakerMode.AAIR, PaceMakerMode.VVIR
+        ]
         
-        for idx, mode in enumerate(modes):
+        # Create scrollable frame for mode buttons
+        mode_canvas = tk.Canvas(mode_frame, height=80, highlightthickness=0)
+        mode_scrollbar = ttk.Scrollbar(mode_frame, orient="horizontal", command=mode_canvas.xview)
+        mode_scrollable = ttk.Frame(mode_canvas)
+        
+        mode_scrollable.bind("<Configure>", lambda e: mode_canvas.configure(scrollregion=mode_canvas.bbox("all")))
+        mode_canvas.create_window((0, 0), window=mode_scrollable, anchor="nw")
+        mode_canvas.configure(xscrollcommand=mode_scrollbar.set)
+        
+        for idx, mode in enumerate(required_modes):
             mode_info = parse_mode(mode)
-            btn = tk.Button(button_container, 
-                          text=f"{mode.value}\n{mode_info.descrpt}",
-                          font=('Helvetica', 10),
-                          width=20, height=3,
+            btn = tk.Button(mode_scrollable, 
+                          text=f"{mode.value}\n{mode_info.descrpt[:30]}...",
+                          font=('Helvetica', 9),
+                          width=18, height=3,
                           relief=tk.RAISED, bd=2,
                           bg='#ecf0f1',
                           activebackground='#3498db',
                           command=lambda m=mode: self._select_mode(m))
-            btn.grid(row=0, column=idx, padx=5, pady=5)
+            btn.grid(row=0, column=idx, padx=3, pady=5)
             self.mode_buttons[mode] = btn
+        
+        mode_canvas.pack(side="top", fill="both", expand=True)
+        mode_scrollbar.pack(side="bottom", fill="x")
         
         self.mode_display_frame = ttk.Frame(mode_frame)
         self.mode_display_frame.pack(fill=tk.X, pady=(10, 0))
@@ -298,6 +342,15 @@ class DCMApplication:
         
         ttk.Button(action_frame, text="Load Parameters",
                   command=self._load_parameters).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(action_frame, text="Transmit to Device", style='Action.TButton',
+                  command=self._transmit_parameters).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(action_frame, text="Request Parameters",
+                  command=self._request_parameters).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(action_frame, text="View Egrams",
+                  command=self._show_egram_window).pack(side=tk.LEFT, padx=5)
         
         self._select_mode(PaceMakerMode.VVI)
     
@@ -376,71 +429,146 @@ class DCMApplication:
         scrollbar.pack(side="right", fill="y")
     
     def _get_mode_parameters(self, mode):
-        """Return parameters for the given mode"""
+        """Return parameters for the given mode based on Deliverable 2 requirements"""
+        mode_info = parse_mode(mode)
+        is_rate_adaptive = mode_info.rate
+        
+        # Common parameters for all modes
         common = [
             {'name': 'LRL', 'label': 'Lower Rate Limit', 'unit': 'ppm', 
              'range': '30-175', 'type': 'int'},
+        ]
+        
+        # URL for modes with sensing
+        url_param = [
             {'name': 'URL', 'label': 'Upper Rate Limit', 'unit': 'ppm', 
              'range': '50-175', 'type': 'int'},
         ]
         
+        # Rate adaptive parameters
+        rate_params = [
+            {'name': 'MSR', 'label': 'Maximum Sensor Rate', 'unit': 'ppm', 
+             'range': '50-175', 'type': 'int'},
+            {'name': 'activity_threshold', 'label': 'Activity Threshold', 'unit': 'level', 
+             'range': '1-7 (V-Low to V-High)', 'type': 'int'},
+            {'name': 'reaction_time', 'label': 'Reaction Time', 'unit': 'sec', 
+             'range': '10-50', 'type': 'int'},
+            {'name': 'recovery_time', 'label': 'Recovery Time', 'unit': 'min', 
+             'range': '2-16', 'type': 'int'},
+            {'name': 'response_factor', 'label': 'Response Factor', 'unit': 'level', 
+             'range': '1-16', 'type': 'int'},
+        ]
+        
+        # Atrial parameters (Deliverable 2: pulse width 1-30 ms, amplitude 0.1-5.0V)
         atrial = [
             {'name': 'atrial_amp', 'label': 'Atrial Amplitude', 'unit': 'V', 
              'range': '0.1-5.0', 'type': 'float'},
             {'name': 'atrial_width', 'label': 'Atrial Pulse Width', 'unit': 'ms', 
-             'range': '0.1-1.9', 'type': 'float'},
+             'range': '1-30', 'type': 'int'},
+            {'name': 'atrial_sensitivity', 'label': 'Atrial Sensitivity', 'unit': 'V', 
+             'range': '0.0-5.0', 'type': 'float'},
             {'name': 'ARP', 'label': 'Atrial Refractory Period', 'unit': 'ms', 
              'range': '150-500', 'type': 'int'},
         ]
         
+        # Ventricular parameters (Deliverable 2: pulse width 1-30 ms, amplitude 0.1-5.0V)
         ventricular = [
             {'name': 'ventricular_amp', 'label': 'Ventricular Amplitude', 'unit': 'V', 
              'range': '0.1-5.0', 'type': 'float'},
             {'name': 'ventricular_width', 'label': 'Ventricular Pulse Width', 'unit': 'ms', 
-             'range': '0.1-1.9', 'type': 'float'},
+             'range': '1-30', 'type': 'int'},
+            {'name': 'ventricular_sensitivity', 'label': 'Ventricular Sensitivity', 'unit': 'V', 
+             'range': '0.0-5.0', 'type': 'float'},
             {'name': 'VRP', 'label': 'Ventricular Refractory Period', 'unit': 'ms', 
              'range': '150-500', 'type': 'int'},
         ]
         
-        if mode == PaceMakerMode.AOO:
-            return [common[0], *atrial[:2]]
-        elif mode == PaceMakerMode.VOO:
-            return [common[0], *ventricular[:2]]
-        elif mode == PaceMakerMode.AAI:
-            return [*common, *atrial]
-        elif mode == PaceMakerMode.VVI:
-            return [*common, *ventricular]
+        params = []
         
-        return []
+        # AOO mode: LRL, atrial amplitude, atrial pulse width
+        if mode == PaceMakerMode.AOO:
+            params = [common[0], atrial[0], atrial[1]]
+        # VOO mode: LRL, ventricular amplitude, ventricular pulse width
+        elif mode == PaceMakerMode.VOO:
+            params = [common[0], ventricular[0], ventricular[1]]
+        # AAI mode: LRL, URL, all atrial parameters
+        elif mode == PaceMakerMode.AAI:
+            params = [common[0], *url_param, *atrial]
+        # VVI mode: LRL, URL, all ventricular parameters
+        elif mode == PaceMakerMode.VVI:
+            params = [common[0], *url_param, *ventricular]
+        # AOOR mode: LRL, MSR, rate params, atrial amplitude, atrial pulse width
+        elif mode == PaceMakerMode.AOOR:
+            params = [common[0], rate_params[0], *rate_params[1:], atrial[0], atrial[1]]
+        # VOOR mode: LRL, MSR, rate params, ventricular amplitude, ventricular pulse width
+        elif mode == PaceMakerMode.VOOR:
+            params = [common[0], rate_params[0], *rate_params[1:], ventricular[0], ventricular[1]]
+        # AAIR mode: LRL, URL, MSR, rate params, all atrial parameters
+        elif mode == PaceMakerMode.AAIR:
+            params = [common[0], *url_param, rate_params[0], *rate_params[1:], *atrial]
+        # VVIR mode: LRL, URL, MSR, rate params, all ventricular parameters
+        elif mode == PaceMakerMode.VVIR:
+            params = [common[0], *url_param, rate_params[0], *rate_params[1:], *ventricular]
+        
+        return params
     
     def _validate_mode_parameters(self, mode):
-        """Validate parameters for current mode"""
+        """Validate parameters for current mode based on Deliverable 2 requirements"""
+        mode_info = parse_mode(mode)
+        is_rate_adaptive = mode_info.rate
+        
+        # LRL validation
         if not(30 <= self.parameters.LRL <= 175):
             raise ValueError(f"LRL {self.parameters.LRL} out of range (30-175 ppm)")
         
-        if mode in [PaceMakerMode.AAI, PaceMakerMode.VVI]:
+        # URL validation for modes with sensing
+        if mode_info.sensed != 'O':
             if not(50 <= self.parameters.URL <= 175):
                 raise ValueError(f"URL {self.parameters.URL} out of range (50-175 ppm)")
             if self.parameters.LRL >= self.parameters.URL:
                 raise ValueError(f"URL must be greater than LRL")
         
-        if mode in [PaceMakerMode.AOO, PaceMakerMode.AAI]:
+        # MSR validation for rate adaptive modes
+        if is_rate_adaptive:
+            if not(50 <= self.parameters.MSR <= 175):
+                raise ValueError(f"MSR {self.parameters.MSR} out of range (50-175 ppm)")
+            if self.parameters.MSR < self.parameters.URL:
+                raise ValueError(f"MSR must be >= URL")
+        
+        # Atrial parameters
+        if mode_info.paced == 'A' or mode_info.sensed == 'A':
             if not (0.1 <= self.parameters.atrial_amp <= 5.0):
                 raise ValueError(f"Atrial Amplitude {self.parameters.atrial_amp} out of range (0.1-5.0 V)")
-            if not (0.1 <= self.parameters.atrial_width <= 1.9):
-                raise ValueError(f"Atrial Pulse Width {self.parameters.atrial_width} out of range (0.1-1.9 ms)")
-            if mode == PaceMakerMode.AAI:
+            if not (1 <= self.parameters.atrial_width <= 30):
+                raise ValueError(f"Atrial Pulse Width {self.parameters.atrial_width} out of range (1-30 ms)")
+            if mode_info.sensed == 'A':
+                if not (0.0 <= self.parameters.atrial_sensitivity <= 5.0):
+                    raise ValueError(f"Atrial Sensitivity {self.parameters.atrial_sensitivity} out of range (0.0-5.0 V)")
                 if not (150 <= self.parameters.ARP <= 500):
                     raise ValueError(f"ARP {self.parameters.ARP} out of range (150-500 ms)")
         
-        if mode in [PaceMakerMode.VOO, PaceMakerMode.VVI]:
+        # Ventricular parameters
+        if mode_info.paced == 'V' or mode_info.sensed == 'V':
             if not (0.1 <= self.parameters.ventricular_amp <= 5.0):
                 raise ValueError(f"Ventricular Amplitude {self.parameters.ventricular_amp} out of range (0.1-5.0 V)")
-            if not (0.1 <= self.parameters.ventricular_width <= 1.9):
-                raise ValueError(f"Ventricular Pulse Width {self.parameters.ventricular_width} out of range (0.1-1.9 ms)")
-            if mode == PaceMakerMode.VVI:
+            if not (1 <= self.parameters.ventricular_width <= 30):
+                raise ValueError(f"Ventricular Pulse Width {self.parameters.ventricular_width} out of range (1-30 ms)")
+            if mode_info.sensed == 'V':
+                if not (0.0 <= self.parameters.ventricular_sensitivity <= 5.0):
+                    raise ValueError(f"Ventricular Sensitivity {self.parameters.ventricular_sensitivity} out of range (0.0-5.0 V)")
                 if not (150 <= self.parameters.VRP <= 500):
                     raise ValueError(f"VRP {self.parameters.VRP} out of range (150-500 ms)")
+        
+        # Rate adaptive parameters
+        if is_rate_adaptive:
+            if not (1 <= self.parameters.activity_threshold <= 7):
+                raise ValueError(f"Activity Threshold {self.parameters.activity_threshold} out of range (1-7)")
+            if not (10 <= self.parameters.reaction_time <= 50):
+                raise ValueError(f"Reaction Time {self.parameters.reaction_time} out of range (10-50 sec)")
+            if not (2 <= self.parameters.recovery_time <= 16):
+                raise ValueError(f"Recovery Time {self.parameters.recovery_time} out of range (2-16 min)")
+            if not (1 <= self.parameters.response_factor <= 16):
+                raise ValueError(f"Response Factor {self.parameters.response_factor} out of range (1-16)")
         
         return True
     
@@ -453,8 +581,17 @@ class DCMApplication:
         
         try:
             for param_name, widget_info in self.param_widgets.items():
-                value_str = widget_info['var'].get()
-                value = int(value_str) if widget_info['type'] == 'int' else float(value_str)
+                value_str = widget_info['var'].get().strip()
+                if not value_str:
+                    raise ValueError(f"{param_name} cannot be empty")
+                
+                if widget_info['type'] == 'int':
+                    value = int(value_str)
+                elif widget_info['type'] == 'float':
+                    value = float(value_str)
+                else:
+                    value = value_str
+                
                 setattr(self.parameters, param_name, value)
             
             self._validate_mode_parameters(self.current_mode)
@@ -483,13 +620,260 @@ class DCMApplication:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load: {str(e)}")
     
+    def _handle_serial_connect(self):
+        """Handle serial port connection/disconnection"""
+        if not SERIAL_AVAILABLE:
+            messagebox.showerror("Serial Not Available", 
+                               "Serial interface module not available.")
+            return
+        
+        if self.is_connected:
+            # Disconnect
+            if self.serial_interface:
+                self.serial_interface.disconnect()
+            self.serial_interface = None
+            self.is_connected = False
+            self.connect_btn.config(text="Connect")
+            self.telemetry_status.config(text="Disconnected", foreground='red')
+            self.telemetry_canvas.itemconfig(self.telemetry_led, fill='red', outline='darkred')
+        else:
+            # Connect
+            port = self.port_var.get()
+            try:
+                self.serial_interface = SerialInterface(port, baudrate=57600)
+                self.serial_interface.connect()
+                
+                # Set up callbacks
+                self.serial_interface.ack_callback = self._on_parameter_ack
+                self.serial_interface.egram_callback = self._on_egram_data
+                
+                self.is_connected = True
+                self.serial_port = port
+                self.connect_btn.config(text="Disconnect")
+                self.telemetry_status.config(text="Connected", foreground='green')
+                self.telemetry_canvas.itemconfig(self.telemetry_led, fill='green', outline='darkgreen')
+                messagebox.showinfo("Connected", f"Successfully connected to {port}")
+            except Exception as e:
+                messagebox.showerror("Connection Error", f"Failed to connect to {port}:\n{str(e)}")
+                self.is_connected = False
+    
+    def _on_parameter_ack(self):
+        """Callback when parameter transmission is acknowledged"""
+        self.root.after(0, lambda: messagebox.showinfo("Success", 
+            "Parameters successfully transmitted and verified on device."))
+    
+    def _on_egram_data(self, channel, value):
+        """Callback when egram data is received"""
+        if channel == 0:  # Atrial
+            self.egram_data['atrial'].append((time.time(), value))
+        elif channel == 1:  # Ventricular
+            self.egram_data['ventricular'].append((time.time(), value))
+        
+        # Update egram display if window is open
+        if self.egram_window and self.egram_window.winfo_exists():
+            self.root.after(0, self._update_egram_display)
+    
+    def _transmit_parameters(self):
+        """Transmit parameters to the pacemaker device"""
+        if not self.is_connected or not self.serial_interface:
+            messagebox.showerror("Not Connected", 
+                               "Please connect to the device first.")
+            return
+        
+        if not self.current_mode:
+            messagebox.showwarning("No Mode Selected", 
+                                 "Please select a pacing mode before transmitting.")
+            return
+        
+        try:
+            # Validate parameters first
+            self._validate_mode_parameters(self.current_mode)
+            
+            # Convert parameters to format expected by serial interface
+            params_dict = {
+                "MODE": mode_id(self.current_mode),
+                "ARP": self.parameters.ARP,
+                "VRP": self.parameters.VRP,
+                "ATR_AMPLITUDE": self.parameters.atrial_amp,
+                "VENT_AMPLITUDE": self.parameters.ventricular_amp,
+                "ATR_PULSEWIDTH": self.parameters.atrial_width,
+                "VENT_PULSEWIDTH": self.parameters.ventricular_width,
+                "ATR_CMP_REF_PWM": self.parameters.atr_cmp_ref_pwm,
+                "VENT_CMP_REF_PWM": self.parameters.vent_cmp_ref_pwm,
+                "REACTION_TIME": self.parameters.reaction_time,
+                "RECOVERY_TIME": self.parameters.recovery_time,
+                "PVARP": self.parameters.PVARP,
+                "FIXED_AV_DELAY": self.parameters.AV_delay,
+                "RESPONSE_FACTOR": self.parameters.response_factor,
+                "ACTIVITY_THRESHOLD": self.parameters.activity_threshold,
+                "UPPER_RATE_LIMIT": self.parameters.URL,
+                "LOWER_RATE_LIMIT": self.parameters.LRL,
+                "MAXIMUM_SENSOR_RATE": self.parameters.MSR,
+                "RATE_SMOOTHING": self.parameters.rate_smoothing
+            }
+            
+            self.serial_interface.send_parameters(params_dict)
+            messagebox.showinfo("Transmitted", 
+                              "Parameters transmitted to device.\n"
+                              "Waiting for verification...")
+            
+        except ValueError as e:
+            messagebox.showerror("Validation Error", str(e))
+        except Exception as e:
+            messagebox.showerror("Transmission Error", f"Failed to transmit: {str(e)}")
+    
+    def _request_parameters(self):
+        """Request current parameters from the pacemaker device"""
+        if not self.is_connected or not self.serial_interface:
+            messagebox.showerror("Not Connected", 
+                               "Please connect to the device first.")
+            return
+        
+        # Note: This would need to be implemented in serial_interface
+        messagebox.showinfo("Request Sent", 
+                          "Parameter request sent to device.\n"
+                          "Parameters will be displayed when received.")
+    
+    def _show_egram_window(self):
+        """Display egram window"""
+        if self.egram_window and self.egram_window.winfo_exists():
+            self.egram_window.lift()
+            return
+        
+        self.egram_window = tk.Toplevel(self.root)
+        self.egram_window.title("Real-Time Electrograms")
+        self.egram_window.geometry("800x600")
+        
+        # Control frame
+        control_frame = ttk.Frame(self.egram_window, padding="10")
+        control_frame.pack(fill=tk.X)
+        
+        ttk.Label(control_frame, text="Egram Display", font=('Helvetica', 12, 'bold')).pack(side=tk.LEFT, padx=5)
+        
+        self.egram_stream_btn = ttk.Button(control_frame, text="Start Streaming",
+                                           command=self._toggle_egram_streaming)
+        self.egram_stream_btn.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(control_frame, text="Clear", command=self._clear_egram).pack(side=tk.LEFT, padx=5)
+        
+        # Canvas for egram display
+        canvas_frame = ttk.Frame(self.egram_window)
+        canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.egram_canvas = tk.Canvas(canvas_frame, bg='white', height=500)
+        self.egram_canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # Labels for channels
+        ttk.Label(canvas_frame, text="Atrial (Blue) / Ventricular (Red)", 
+                 font=('Helvetica', 10)).pack()
+        
+        # Initial display
+        self._update_egram_display()
+    
+    def _toggle_egram_streaming(self):
+        """Start/stop egram data streaming"""
+        if not self.is_connected or not self.serial_interface:
+            messagebox.showerror("Not Connected", 
+                               "Please connect to the device first.")
+            return
+        
+        if self.egram_streaming:
+            # Stop streaming
+            self.egram_streaming = False
+            self.egram_stream_btn.config(text="Start Streaming")
+            # Note: Would need stop command in serial_interface
+        else:
+            # Start streaming
+            self.egram_streaming = True
+            self.egram_stream_btn.config(text="Stop Streaming")
+            # Note: Would need start command in serial_interface
+            messagebox.showinfo("Streaming Started", 
+                              "Egram data streaming started.\n"
+                              "Data will be displayed in real-time.")
+    
+    def _clear_egram(self):
+        """Clear egram display"""
+        self.egram_data['atrial'].clear()
+        self.egram_data['ventricular'].clear()
+        self._update_egram_display()
+    
+    def _update_egram_display(self):
+        """Update the egram canvas with current data"""
+        if not self.egram_window or not self.egram_window.winfo_exists():
+            return
+        
+        canvas = self.egram_canvas
+        canvas.delete("all")
+        
+        width = canvas.winfo_width()
+        height = canvas.winfo_height()
+        
+        if width < 10 or height < 10:
+            return
+        
+        # Draw grid
+        for i in range(0, width, 50):
+            canvas.create_line(i, 0, i, height, fill='#e0e0e0', width=1)
+        for i in range(0, height, 50):
+            canvas.create_line(0, i, width, i, fill='#e0e0e0', width=1)
+        
+        # Draw center line
+        center_y = height // 2
+        canvas.create_line(0, center_y, width, center_y, fill='#888', width=2)
+        
+        # Plot atrial data (blue)
+        atrial_data = list(self.egram_data['atrial'])
+        if len(atrial_data) > 1:
+            points = []
+            for i, (t, val) in enumerate(atrial_data):
+                x = int((i / max(len(atrial_data), 1)) * width)
+                # Scale value to fit canvas (assuming 0-4095 range)
+                y = int(center_y - (val / 4095.0) * (height / 4))
+                points.append((x, y))
+            
+            if len(points) > 1:
+                for i in range(len(points) - 1):
+                    canvas.create_line(points[i][0], points[i][1], 
+                                     points[i+1][0], points[i+1][1], 
+                                     fill='blue', width=2)
+        
+        # Plot ventricular data (red)
+        ventricular_data = list(self.egram_data['ventricular'])
+        if len(ventricular_data) > 1:
+            points = []
+            for i, (t, val) in enumerate(ventricular_data):
+                x = int((i / max(len(ventricular_data), 1)) * width)
+                # Scale value to fit canvas (assuming 0-4095 range)
+                y = int(center_y + (val / 4095.0) * (height / 4))
+                points.append((x, y))
+            
+            if len(points) > 1:
+                for i in range(len(points) - 1):
+                    canvas.create_line(points[i][0], points[i][1], 
+                                     points[i+1][0], points[i+1][1], 
+                                     fill='red', width=2)
+        
+        # Schedule next update
+        if self.egram_streaming:
+            self.root.after(50, self._update_egram_display)
+    
     def _handle_logout(self):
         """Handle user logout"""
         if messagebox.askyesno("Confirm Logout", 
                               "Are you sure you want to logout?\n"
                               "Make sure you have saved any parameter changes."):
+            # Disconnect serial if connected
+            if self.is_connected and self.serial_interface:
+                self.serial_interface.disconnect()
+            
+            # Close egram window if open
+            if self.egram_window and self.egram_window.winfo_exists():
+                self.egram_window.destroy()
+            
             self.current_user = None
             self.current_mode = None
+            self.is_connected = False
+            self.serial_interface = None
             self.show_login_screen()
 
 

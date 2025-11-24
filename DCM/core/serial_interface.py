@@ -89,7 +89,8 @@ class SerialInterface:
      
 
         print(f"[DEBUG] Packing parameters: {values}")
-        payload = struct.pack("<19H", *values)
+        # payload = struct.pack('<19H', *values)
+        payload = struct.pack('<19B', *values)
         packet = self._build_packet(CMD_SEND_PARAMS,payload)
         print(f"[DEBUG] Sending Parameter Packet: {packet.hex()}")
         self.serial.write(packet)

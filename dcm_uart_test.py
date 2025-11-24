@@ -7,7 +7,7 @@ from DCM.core.serial_interface import SerialInterface
 TEST_PARAMS = {
     # "MODE" is handled separately in send_parameters
     "ARP": 250,
-    "VRP": 320,
+    "VRP": 250,
     "atrial_amp": 4.5,
     "ventricular_amp": 4.5,
     "atrial_width": 1,          # Note: serial_interface casts to int. If this is ms, 5ms.
@@ -26,7 +26,7 @@ TEST_PARAMS = {
     "rate_smoothing": 0
 }
 
-TEST_MODE_ID = 0 # AOO
+TEST_MODE_ID = 0 # VOO
 
 def on_ack():
     print("[MCU] ACK received")
@@ -72,7 +72,9 @@ def main():
 
 
 #to run first find the uart port thebn send params using
-#python3 dcm_art_test.py /dev/tty.usbmodem1101 --send
+#python3 dcm_uart_test.py /dev/tty.usbmodem1101 --send
+# py dcm_uart_test.py COM4 --send
+
 #to check if ure sending data correctly
 #python3 dcm_cli_uart_test.py /dev/tty.usbmodem1101 --egram
 # py dcm_cli_uart_test.py COM4 --egram

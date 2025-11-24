@@ -6,8 +6,8 @@ import serial
 START_BYTE = 0x16
 END_BYTE = 0x04
 
-CMD_SEND_PARAMS = 0x16
-CMD_REQUEST_EGRAM = 0x02
+CMD_SEND_PARAMS = 0x55
+CMD_REQUEST_EGRAM = 0x22
 
 
 class SerialInterface:
@@ -32,11 +32,10 @@ class SerialInterface:
             
     #build packet
     def _build_packet(self, cmd, payload_bytes):
-        length = len(payload_bytes)
+        #length = len(payload_bytes)
         packet = bytearray()
         packet.append(START_BYTE)
         packet.append(cmd)
-        packet.append(length)
         packet.extend(payload_bytes)
         
         checksum = 0
@@ -121,12 +120,31 @@ class SerialInterface:
                                     buffer.clear()
                                     break
                             
-                            # 2. Check if we have enough for header (START, CMD, LEN)
-                            if len(buffer) < 3:
+                            # 2. Check if we have enough for header (START, CMD)
+                            if len(buffer) < 2:
                                 break
                                 
-                            payload_len = buffer[2]
-                            total_len = 3 + payload_len + 2 # Header(3) + Payload(N) + Checksum(1) + End(1)
+                            cmd = buffer[1]
+                            
+                            # Determine payload length based on command
+                            # CMD_SEND_PARAMS: Not received by PC usually, but for completeness
+                            # CMD_REQUEST_EGRAM: 0 payload
+                            # ACK (0xAA): 0 payload
+                            # EGRAM_DATA (0xE0): 3 bytes (1 byte ch + 2 bytes val)
+                            
+                            payload_len = 0
+                            if cmd == 0xE0: # EGRAM DATA
+                                payload_len = 3
+                            elif cmd == 0xAA: # ACK
+                                payload_len = 0
+                            else:
+                                # Unknown command or one we don't expect to receive with payload
+                                # For robustness, if we don't know it, maybe we should just wait for more?
+                                # But if it's garbage, we might get stuck. 
+                                # Let's assume 0 for now or print warning
+                                pass
+
+                            total_len = 2 + payload_len + 2 # Header(2: START, CMD) + Payload(N) + Checksum(1) + End(1)
                             
                             # 3. Check if we have full packet
                             if len(buffer) < total_len:
@@ -146,14 +164,15 @@ class SerialInterface:
     
     def _process_packet(self,packet):
         print(f"[DEBUG] Processing packet: {packet.hex()}")
-        if len(packet)<5:
+        if len(packet)<4:
             return
         if packet[0] != START_BYTE:
             return
         cmd = packet[1]
-        length = packet[2]
-        payload = packet[3: 3+ length]
-        recv_checksum = packet[3+length]
+        # length is no longer in packet
+        # payload is from index 2 up to -2 (excluding checksum and end)
+        payload = packet[2:-2]
+        recv_checksum = packet[-2]
         
         # Verify End Byte
         if packet[-1] != END_BYTE:
@@ -161,7 +180,7 @@ class SerialInterface:
             return
 
         calc_checksum = 0
-        for b in packet[1:3+length]:
+        for b in packet[1:-2]: # CMD + PAYLOAD
             calc_checksum ^= b
         
         if recv_checksum != calc_checksum:

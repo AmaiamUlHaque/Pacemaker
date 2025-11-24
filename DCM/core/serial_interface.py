@@ -77,8 +77,8 @@ class SerialInterface:
             get_val("AV_delay"),                    # FIXED_AV_DELAY
             get_val("response_factor"),             # RESPONSE_FACTOR
             get_val("activity_threshold"),          # ACTIVITY_THRESHOLD
-            get_val("URL"),                         # UPPER_RATE_LIMIT
             get_val("LRL"),                         # LOWER_RATE_LIMIT
+            get_val("URL"),                         # UPPER_RATE_LIMIT
             get_val("MSR"),                         # MAXIMUM_SENSOR_RATE
             get_val("rate_smoothing")               # RATE_SMOOTHING
         ]

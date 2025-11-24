@@ -8,25 +8,25 @@ TEST_PARAMS = {
     # "MODE" is handled separately in send_parameters
     "ARP": 250,
     "VRP": 320,
-    "atrial_amp": 3.0,
-    "ventricular_amp": 3.5,
-    "atrial_width": 5,          # Note: serial_interface casts to int. If this is ms, 5ms.
-    "ventricular_width": 6,
-    "atr_cmp_ref_pwm": 1200,
-    "vent_cmp_ref_pwm": 1300,
-    "reaction_time": 20,
-    "recovery_time": 10,
-    "PVARP": 200,
+    "atrial_amp": 4.5,
+    "ventricular_amp": 4.5,
+    "atrial_width": 1,          # Note: serial_interface casts to int. If this is ms, 5ms.
+    "ventricular_width": 1,
+    "atr_cmp_ref_pwm": 60,
+    "vent_cmp_ref_pwm": 90,
+    "reaction_time": 30,
+    "recovery_time": 5,
+    "PVARP": 250,
     "AV_delay": 150,            # FIXED_AV_DELAY -> AV_delay
     "response_factor": 8,
-    "activity_threshold": 3,
-    "URL": 150,                 # UPPER_RATE_LIMIT -> URL
+    "activity_threshold": 0,
     "LRL": 60,                  # LOWER_RATE_LIMIT -> LRL
+    "URL": 120,                 # UPPER_RATE_LIMIT -> URL
     "MSR": 160,                 # MAXIMUM_SENSOR_RATE -> MSR
-    "rate_smoothing": 5
+    "rate_smoothing": 0
 }
 
-TEST_MODE_ID = 3 # VVI
+TEST_MODE_ID = 0 # AOO
 
 def on_ack():
     print("[MCU] ACK received")
@@ -75,6 +75,7 @@ def main():
 #python3 dcm_art_test.py /dev/tty.usbmodem1101 --send
 #to check if ure sending data correctly
 #python3 dcm_cli_uart_test.py /dev/tty.usbmodem1101 --egram
+# py dcm_cli_uart_test.py COM4 --egram
 
 if __name__ == "__main__":
     main()

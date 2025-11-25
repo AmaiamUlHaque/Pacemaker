@@ -286,9 +286,11 @@ class DCMApplication:
         
         self.mode_buttons = {}
         # Deliverable 2 required modes: AOO, VOO, AAI, VVI, AOOR, VOOR, AAIR, VVIR
+        # Bonus: DDDR mode
         required_modes = [
             PaceMakerMode.AOO, PaceMakerMode.VOO, PaceMakerMode.AAI, PaceMakerMode.VVI,
-            PaceMakerMode.AOOR, PaceMakerMode.VOOR, PaceMakerMode.AAIR, PaceMakerMode.VVIR
+            PaceMakerMode.AOOR, PaceMakerMode.VOOR, PaceMakerMode.AAIR, PaceMakerMode.VVIR,
+            PaceMakerMode.DDDR
         ]
         
         # Create scrollable frame for mode buttons
@@ -509,6 +511,16 @@ class DCMApplication:
         # VVIR mode: LRL, URL, MSR, rate params, all ventricular parameters
         elif mode == PaceMakerMode.VVIR:
             params = [common[0], *url_param, rate_params[0], *rate_params[1:], *ventricular]
+        # DDDR mode: LRL, URL, MSR, rate params, all atrial, all ventricular, AV_delay, PVARP
+        elif mode == PaceMakerMode.DDDR:
+            dual_timing = [
+                {'name': 'AV_delay', 'label': 'AV Delay', 'unit': 'ms', 
+                 'range': '30-300', 'type': 'int'},
+                {'name': 'PVARP', 'label': 'Post-Ventricular Atrial Refractory Period', 'unit': 'ms', 
+                 'range': '150-500', 'type': 'int'},
+            ]
+            params = [common[0], *url_param, rate_params[0], *rate_params[1:], 
+                     *atrial, *ventricular, *dual_timing]
         
         return params
     
@@ -569,6 +581,13 @@ class DCMApplication:
                 raise ValueError(f"Recovery Time {self.parameters.recovery_time} out of range (2-16 min)")
             if not (1 <= self.parameters.response_factor <= 16):
                 raise ValueError(f"Response Factor {self.parameters.response_factor} out of range (1-16)")
+        
+        # Dual chamber parameters (DDDR mode)
+        if mode_info.paced == 'D' or mode_info.sensed == 'D':
+            if not (30 <= self.parameters.AV_delay <= 300):
+                raise ValueError(f"AV Delay {self.parameters.AV_delay} out of range (30-300 ms)")
+            if not (150 <= self.parameters.PVARP <= 500):
+                raise ValueError(f"PVARP {self.parameters.PVARP} out of range (150-500 ms)")
         
         return True
     
@@ -640,7 +659,7 @@ class DCMApplication:
             # Connect
             port = self.port_var.get()
             try:
-                self.serial_interface = SerialInterface(port, baudrate=57600)
+                self.serial_interface = SerialInterface(port, baudrate=115200)
                 self.serial_interface.connect()
                 
                 # Set up callbacks
@@ -686,41 +705,47 @@ class DCMApplication:
             return
         
         try:
-            # Validate parameters first
+            # First, update parameters from GUI widgets
+            for param_name, widget_info in self.param_widgets.items():
+                value_str = widget_info['var'].get().strip()
+                if not value_str:
+                    raise ValueError(f"{param_name} cannot be empty")
+                
+                if widget_info['type'] == 'int':
+                    value = int(value_str)
+                elif widget_info['type'] == 'float':
+                    value = float(value_str)
+                else:
+                    value = value_str
+                
+                setattr(self.parameters, param_name, value)
+            
+            # Validate parameters
             self._validate_mode_parameters(self.current_mode)
             
-            # Convert parameters to format expected by serial interface
-            params_dict = {
-                "MODE": mode_id(self.current_mode),
-                "ARP": self.parameters.ARP,
-                "VRP": self.parameters.VRP,
-                "ATR_AMPLITUDE": self.parameters.atrial_amp,
-                "VENT_AMPLITUDE": self.parameters.ventricular_amp,
-                "ATR_PULSEWIDTH": self.parameters.atrial_width,
-                "VENT_PULSEWIDTH": self.parameters.ventricular_width,
-                "ATR_CMP_REF_PWM": self.parameters.atr_cmp_ref_pwm,
-                "VENT_CMP_REF_PWM": self.parameters.vent_cmp_ref_pwm,
-                "REACTION_TIME": self.parameters.reaction_time,
-                "RECOVERY_TIME": self.parameters.recovery_time,
-                "PVARP": self.parameters.PVARP,
-                "FIXED_AV_DELAY": self.parameters.AV_delay,
-                "RESPONSE_FACTOR": self.parameters.response_factor,
-                "ACTIVITY_THRESHOLD": self.parameters.activity_threshold,
-                "UPPER_RATE_LIMIT": self.parameters.URL,
-                "LOWER_RATE_LIMIT": self.parameters.LRL,
-                "MAXIMUM_SENSOR_RATE": self.parameters.MSR,
-                "RATE_SMOOTHING": self.parameters.rate_smoothing
-            }
+            # make sure serial port is open
+            if not self.serial_interface.serial or not self.serial_interface.serial.is_open:
+                messagebox.showerror("Serial Error", 
+                                   "Serial port is not open. Please reconnect.")
+                return
             
-            self.serial_interface.send_parameters(params_dict)
+            # convert to dict and send, same way as the uart test file
+            params_dict = self.parameters.to_dict()
+            mode_id_val = mode_id(self.current_mode)
+            self.serial_interface.send_parameters(params_dict, mode_id_val=mode_id_val)
             messagebox.showinfo("Transmitted", 
                               "Parameters transmitted to device.\n"
                               "Waiting for verification...")
             
         except ValueError as e:
             messagebox.showerror("Validation Error", str(e))
+        except RuntimeError as e:
+            messagebox.showerror("Serial Error", str(e))
         except Exception as e:
-            messagebox.showerror("Transmission Error", f"Failed to transmit: {str(e)}")
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[ERROR] Transmission failed: {error_details}")
+            messagebox.showerror("Transmission Error", f"Failed to transmit: {str(e)}\n\nCheck console for details.")
     
     def _request_parameters(self):
         """Request current parameters from the pacemaker device"""

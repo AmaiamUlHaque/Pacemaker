@@ -87,12 +87,14 @@ class SerialInterface:
         
         #values = [int(v) if not isinstance(v, float) else int(v) for v in values]
      
-        print(f"[DEBUG] Packing parameters: {values}")
-        # payload = struct.pack('<19H', *values)
         payload = struct.pack('<B H H f f H H B B H H B H B B B B B B', *values)
-        packet = self._build_packet(CMD_SEND_PARAMS,payload)
-        print(f"[DEBUG] Sending Parameter Packet: {packet.hex()}")
+        packet = self._build_packet(CMD_SEND_PARAMS, payload)
+        
+        if not self.serial or not self.serial.is_open:
+            raise RuntimeError("Serial port is not open. Cannot send parameters.")
+        
         self.serial.write(packet)
+        self.serial.flush()  # make sure it sends right away
     
     def _read_loop(self):
         buffer = bytearray()

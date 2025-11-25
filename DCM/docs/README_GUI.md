@@ -24,11 +24,13 @@ python3 -m gui.dcm_gui
 - Session management
 
 ### Pacing Modes
-The interface supports four pacing modes:
+The interface supports the deliverable-2 modes plus the bonus dual-chamber option:
 - **AOO**: Atrium paced, none sensed, none response
 - **VOO**: Ventricle paced, none sensed, none response
 - **AAI**: Atrium paced, atrium sensed, inhibit response
 - **VVI**: Ventricle paced, ventricle sensed, inhibit response
+- **AOOR / VOOR / AAIR / VVIR**: Rate-adaptive counterparts for the single-chamber modes
+- **DDDR**: Dual pacing, dual sensing, rate-responsive inhibit with programmable AV delay
 
 ### Parameter Management
 The GUI displays different parameters depending on the selected mode:
@@ -57,6 +59,13 @@ The GUI displays different parameters depending on the selected mode:
 - Ventricular Pulse Width
 - Ventricular Refractory Period (VRP)
 
+**DDDR Mode (Bonus):**
+- Lower Rate Limit (LRL)
+- Upper Rate Limit (URL)
+- Maximum Sensor Rate (MSR) and all rate response controls
+- Complete atrial and ventricular parameter sets
+- AV Delay (30–300 ms) and Post-Ventricular Atrial Refractory Period (PVARP)
+
 ### Parameter Validation
 All parameters are validated according to the pacemaker specification:
 - LRL: 30-175 ppm
@@ -74,6 +83,7 @@ The interface includes a status bar showing:
 - Telemetry status (currently shows "Disconnected" as hardware is not implemented yet)
 - Device connection status
 - Visual LED indicator
+- Pushbutton hold feedback when the ventricular channel is temporarily inhibited
 
 ## User Workflow
 
@@ -85,12 +95,13 @@ The interface includes a status bar showing:
 5. Login with your credentials
 
 ### Using the Interface
-1. Select a pacing mode by clicking one of the four mode buttons
+1. Select a pacing mode (including DDDR) by clicking the desired button
 2. The parameter form will update to show only relevant parameters
 3. Edit parameter values as needed
 4. Click "Save Parameters" to validate and save
 5. Click "Load Parameters" to restore saved values
-6. Click "Logout" when finished
+6. Click "Transmit to Device" to send parameters; hold the **Hold Ventricular Inhibit** button to momentarily pause ventricular pacing while leaving the atrial channel active (simulated pushbutton bonus functionality)
+7. Click "Logout" when finished
 
 ## Technical Details
 
@@ -135,4 +146,5 @@ This implementation satisfies the Deliverable 1 requirements:
 
 - This is Deliverable 1 which focuses on the GUI frontend only
 - Hardware communication features show placeholders and will be implemented in future deliverables
+- The interface now uses a soft pink background throughout the dashboard to improve visual clarity
 - The "Disconnected (No Hardware)" status is expected for this deliverable

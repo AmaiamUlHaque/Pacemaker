@@ -14,6 +14,7 @@ import json
 import threading
 import time
 from collections import deque
+from typing import Optional
 
 # Add parent directory to path to import core modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -37,10 +38,12 @@ class DCMApplication:
         self.root.title("DCM - Device Controller-Monitor")
         self.root.geometry("1000x750")
         self.root.resizable(True, True)
+        self.root.configure(bg="#ffd9ec")
         
         self.current_user = None
         self.current_mode = None
         self.parameters = self._get_default_parameters()
+        self.ventricular_inhibit_active = False
         
         # Serial communication
         self.serial_interface = None
@@ -56,13 +59,21 @@ class DCMApplication:
         self.show_login_screen()
     
     def _configure_styles(self):
-        """Configure GUI styles"""
+        """configure shared ttk styles"""
         style = ttk.Style()
         style.theme_use('clam')
-        style.configure('Title.TLabel', font=('Helvetica', 20, 'bold'), foreground='#2c3e50')
-        style.configure('Subtitle.TLabel', font=('Helvetica', 12), foreground='#34495e')
-        style.configure('Header.TLabel', font=('Helvetica', 14, 'bold'), foreground='#2c3e50')
-        style.configure('Status.TLabel', font=('Helvetica', 10), foreground='#7f8c8d')
+        pink_bg = "#ffd9ec"
+        style.configure('TFrame', background=pink_bg)
+        style.configure('TLabelframe', background=pink_bg)
+        style.configure('TLabelframe.Label', background=pink_bg)
+        style.configure('Title.TLabel', font=('Helvetica', 20, 'bold'),
+                        foreground='#2c3e50', background=pink_bg)
+        style.configure('Subtitle.TLabel', font=('Helvetica', 12),
+                        foreground='#34495e', background=pink_bg)
+        style.configure('Header.TLabel', font=('Helvetica', 14, 'bold'),
+                        foreground='#2c3e50', background=pink_bg)
+        style.configure('Status.TLabel', font=('Helvetica', 10),
+                        foreground='#7f8c8d', background=pink_bg)
         style.configure('Mode.TButton', font=('Helvetica', 11), padding=10)
         style.configure('Action.TButton', font=('Helvetica', 11, 'bold'), padding=8)
         
@@ -285,10 +296,11 @@ class DCMApplication:
         button_container.pack(fill=tk.X)
         
         self.mode_buttons = {}
-        # Deliverable 2 required modes: AOO, VOO, AAI, VVI, AOOR, VOOR, AAIR, VVIR
+        # deliverable modes plus bonus dual-chamber dddr support
         required_modes = [
             PaceMakerMode.AOO, PaceMakerMode.VOO, PaceMakerMode.AAI, PaceMakerMode.VVI,
-            PaceMakerMode.AOOR, PaceMakerMode.VOOR, PaceMakerMode.AAIR, PaceMakerMode.VVIR
+            PaceMakerMode.AOOR, PaceMakerMode.VOOR, PaceMakerMode.AAIR, PaceMakerMode.VVIR,
+            PaceMakerMode.DDDR
         ]
         
         # Create scrollable frame for mode buttons
@@ -351,6 +363,12 @@ class DCMApplication:
         
         ttk.Button(action_frame, text="View Egrams",
                   command=self._show_egram_window).pack(side=tk.LEFT, padx=5)
+        
+        vent_btn = ttk.Button(action_frame, text="Hold Ventricular Inhibit",
+                              style='Action.TButton')
+        vent_btn.bind("<ButtonPress-1>", lambda _e: self._set_pushbutton_inhibit(True))
+        vent_btn.bind("<ButtonRelease-1>", lambda _e: self._set_pushbutton_inhibit(False))
+        vent_btn.pack(side=tk.LEFT, padx=5)
         
         self._select_mode(PaceMakerMode.VVI)
     
@@ -509,6 +527,15 @@ class DCMApplication:
         # VVIR mode: LRL, URL, MSR, rate params, all ventricular parameters
         elif mode == PaceMakerMode.VVIR:
             params = [common[0], *url_param, rate_params[0], *rate_params[1:], *ventricular]
+        # DDDR mode: dual-chamber pacing with av delay and rate response
+        elif mode == PaceMakerMode.DDDR:
+            dual_timing = [
+                {'name': 'AV_delay', 'label': 'AV Delay', 'unit': 'ms',
+                 'range': '30-300', 'type': 'int'},
+                {'name': 'PVARP', 'label': 'Post-Ventricular Atrial Refractory Period', 'unit': 'ms',
+                 'range': '150-500', 'type': 'int'},
+            ]
+            params = [common[0], *url_param, rate_params[0], *rate_params[1:], *atrial, *ventricular, *dual_timing]
         
         return params
     
@@ -569,6 +596,12 @@ class DCMApplication:
                 raise ValueError(f"Recovery Time {self.parameters.recovery_time} out of range (2-16 min)")
             if not (1 <= self.parameters.response_factor <= 16):
                 raise ValueError(f"Response Factor {self.parameters.response_factor} out of range (1-16)")
+
+        if mode == PaceMakerMode.DDDR:
+            if not (30 <= self.parameters.AV_delay <= 300):
+                raise ValueError(f"AV Delay {self.parameters.AV_delay} out of range (30-300 ms)")
+            if not (150 <= self.parameters.PVARP <= 500):
+                raise ValueError(f"PVARP {self.parameters.PVARP} out of range (150-500 ms)")
         
         return True
     
@@ -633,6 +666,7 @@ class DCMApplication:
                 self.serial_interface.disconnect()
             self.serial_interface = None
             self.is_connected = False
+            self.ventricular_inhibit_active = False
             self.connect_btn.config(text="Connect")
             self.telemetry_status.config(text="Disconnected", foreground='red')
             self.telemetry_canvas.itemconfig(self.telemetry_led, fill='red', outline='darkred')
@@ -663,6 +697,7 @@ class DCMApplication:
                 self.serial_interface.egram_callback = on_egram
     # ... rest of method ...
                 self.is_connected = True
+                self.ventricular_inhibit_active = False
                 self.serial_port = port
                 self.connect_btn.config(text="Disconnect")
                 self.telemetry_status.config(text="Connected", foreground='green')
@@ -704,10 +739,7 @@ class DCMApplication:
                            "Serial port is not open. Please reconnect.")
             return
         try:
-            # Validate parameters first
             self._validate_mode_parameters(self.current_mode)
-            
-           # Use the same parameter structure as dcm_uart_test.py
             params_dict = {
                 "ARP": self.parameters.ARP,
                 "VRP": self.parameters.VRP,
@@ -728,26 +760,56 @@ class DCMApplication:
                 "MSR": self.parameters.MSR,
                 "rate_smoothing": self.parameters.rate_smoothing
             }
-
-            # Use the actual current mode
-            current_mode_id = mode_id(self.current_mode)
-
-            print(f"[GUI DEBUG] Sending parameters for mode {self.current_mode.value} (ID: {current_mode_id})")
-            print(f"[GUI DEBUG] Parameters: {params_dict}")
-
-            self.serial_interface.send_parameters(params_dict, current_mode_id)
-
-    
-            #self.serial_interface.send_parameters(params_dict,mode_id(self.current_mode))
+            self.serial_interface.send_parameters(params_dict, mode_id(self.current_mode))
             messagebox.showinfo("Transmitted", 
                               "Parameters transmitted to device.\n"
                               "Waiting for verification...")
-            print(mode_id(self.current_mode))
-            print(self.current_mode)
         except ValueError as e:
             messagebox.showerror("Validation Error", str(e))
         except Exception as e:
             messagebox.showerror("Transmission Error", f"Failed to transmit: {str(e)}")
+    
+    def _set_pushbutton_inhibit(self, active: bool):
+        """mirror the hardware pushbutton by pausing ventricular output while held"""
+        if not self.is_connected or not self.serial_interface:
+            return
+        if self.current_mode != PaceMakerMode.DDDR:
+            return
+        if active == self.ventricular_inhibit_active:
+            return
+        if not self.serial_interface.serial or not self.serial_interface.serial.is_open:
+            return
+        try:
+            self._validate_mode_parameters(self.current_mode)
+            params_dict = {
+                "ARP": self.parameters.ARP,
+                "VRP": self.parameters.VRP,
+                "atrial_amp": self.parameters.atrial_amp,
+                "ventricular_amp": 0.0 if active else self.parameters.ventricular_amp,
+                "atrial_width": self.parameters.atrial_width,
+                "ventricular_width": self.parameters.ventricular_width,
+                "atr_cmp_ref_pwm": self.parameters.atr_cmp_ref_pwm,
+                "vent_cmp_ref_pwm": self.parameters.vent_cmp_ref_pwm,
+                "reaction_time": self.parameters.reaction_time,
+                "recovery_time": self.parameters.recovery_time,
+                "PVARP": self.parameters.PVARP,
+                "AV_delay": self.parameters.AV_delay,
+                "response_factor": self.parameters.response_factor,
+                "activity_threshold": self.parameters.activity_threshold,
+                "LRL": self.parameters.LRL,
+                "URL": self.parameters.URL,
+                "MSR": self.parameters.MSR,
+                "rate_smoothing": self.parameters.rate_smoothing
+            }
+            self.serial_interface.send_parameters(params_dict, mode_id(self.current_mode))
+            self.ventricular_inhibit_active = active
+            if self.telemetry_status:
+                if active:
+                    self.telemetry_status.config(text="Connected (vent inhibit)", foreground='#d35400')
+                else:
+                    self.telemetry_status.config(text="Connected", foreground='green')
+        except Exception as exc:
+            messagebox.showerror("Pushbutton Error", f"Unable to update ventricular inhibition:\n{exc}")
     
     def _request_parameters(self):
         """Request current parameters from the pacemaker device"""

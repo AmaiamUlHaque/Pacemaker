@@ -93,6 +93,7 @@ class SerialInterface:
         packet = self._build_packet(CMD_SEND_PARAMS,payload)
         print(f"[DEBUG] Sending Parameter Packet: {packet.hex()}")
         self.serial.write(packet)
+        #self.serial.flush()
         print(f"im here")
     
     def _read_loop(self):

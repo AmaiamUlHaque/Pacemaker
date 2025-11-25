@@ -38,11 +38,7 @@ class SerialInterface:
         packet.append(cmd)
         packet.extend(payload_bytes)
         
-        # checksum = 0
-        # for b in packet[1:]:
-        #     checksum ^= b
-        # packet.append(checksum)
-        # packet.append(END_BYTE)
+        
         return packet
 
     #public api
@@ -93,7 +89,6 @@ class SerialInterface:
         packet = self._build_packet(CMD_SEND_PARAMS,payload)
         print(f"[DEBUG] Sending Parameter Packet: {packet.hex()}")
         self.serial.write(packet)
-        # self.serial.flush()
         print(f"im here")
     
     def _read_loop(self):
@@ -136,15 +131,9 @@ class SerialInterface:
                             
                             payload_len = 0
                             if cmd == 0xE0: # EGRAM DATA
-                                payload_len = 3
+                                payload_len =  21
                             elif cmd == 0xAA: # ACK
                                 payload_len = 0
-                            else:
-                                # Unknown command or one we don't expect to receive with payload
-                                # For robustness, if we don't know it, maybe we should just wait for more?
-                                # But if it's garbage, we might get stuck. 
-                                # Let's assume 0 for now or print warning
-                                pass
 
                             total_len = 2 + payload_len  # Header(2: START, CMD) + Payload(N) + Checksum(1) + End(1)
                             
@@ -186,12 +175,14 @@ class SerialInterface:
                 self.ack_callback()
         elif cmd == 0xE0:
             if self.egram_callback:
-                i = 0
-                while i + 2 < len(payload):
-                    ch = payload[i]
-                    val = payload[i+1] | (payload[i+2] << 8)
-                    self.egram_callback(ch, val)
-                    i += 3
+                
+                ch1 = 'atrial'
+                ch2 = 'ventricular'
+                val1 = payload[-2]
+                val2 = payload[-1]
+                self.egram_callback(ch1, val)
+                self.egram_callback(ch2, val)
+                
         # def _process_packet(self,packet):
     #     print(f"[DEBUG] Processing packet: {packet.hex()}")
     #     if len(packet)<4:

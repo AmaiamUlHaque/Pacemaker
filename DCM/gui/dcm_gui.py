@@ -689,13 +689,12 @@ class DCMApplication:
                     self.root.after(0, lambda: messagebox.showinfo("Success", 
                         "Parameters successfully transmitted and verified on device."))
                 
-                def on_egram(ch, val):
-                    print(f"[GUI] EGRAM → ch={ch}, value={val}")
-                    # ... existing egram handling code ...
+                # def on_egram(ch, val):
+                #     print(f"[GUI] EGRAM → ch={ch}, value={val}")
                 
                 self.serial_interface.ack_callback = on_ack
-                self.serial_interface.egram_callback = on_egram
-    # ... rest of method ...
+                self.serial_interface.egram_callback = self._on_egram_data    
+    
                 self.is_connected = True
                 self.ventricular_inhibit_active = False
                 self.serial_port = port
@@ -712,16 +711,16 @@ class DCMApplication:
     #     self.root.after(0, lambda: messagebox.showinfo("Success", 
     #         "Parameters successfully transmitted and verified on device."))
     
-    # def _on_egram_data(self, channel, value):
-    #     """Callback when egram data is received"""
-    #     if channel == 0:  # Atrial
-    #         self.egram_data['atrial'].append((time.time(), value))
-    #     elif channel == 1:  # Ventricular
-    #         self.egram_data['ventricular'].append((time.time(), value))
+    def _on_egram_data(self, channel, value):
+        """Callback when egram data is received"""
+        if channel == 0:  # Atrial
+            self.egram_data['atrial'].append((time.time(), value))
+        elif channel == 1:  # Ventricular
+            self.egram_data['ventricular'].append((time.time(), value))
         
-    #     # Update egram display if window is open
-    #     if self.egram_window and self.egram_window.winfo_exists():
-    #         self.root.after(0, self._update_egram_display)
+        # Update egram display if window is open
+        if self.egram_window and self.egram_window.winfo_exists():
+            self.root.after(0, self._update_egram_display)
     
     def _transmit_parameters(self):
         """Transmit parameters to the pacemaker device"""

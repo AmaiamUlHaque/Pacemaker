@@ -38,11 +38,11 @@ class SerialInterface:
         packet.append(cmd)
         packet.extend(payload_bytes)
         
-        checksum = 0
-        for b in packet[1:]:
-            checksum ^= b
-        packet.append(checksum)
-        packet.append(END_BYTE)
+        # checksum = 0
+        # for b in packet[1:]:
+        #     checksum ^= b
+        # packet.append(checksum)
+        # packet.append(END_BYTE)
         return packet
 
     #public api
@@ -144,7 +144,7 @@ class SerialInterface:
                                 # Let's assume 0 for now or print warning
                                 pass
 
-                            total_len = 2 + payload_len + 2 # Header(2: START, CMD) + Payload(N) + Checksum(1) + End(1)
+                            total_len = 2 + payload_len  # Header(2: START, CMD) + Payload(N) + Checksum(1) + End(1)
                             
                             # 3. Check if we have full packet
                             if len(buffer) < total_len:
@@ -171,21 +171,21 @@ class SerialInterface:
         cmd = packet[1]
         # length is no longer in packet
         # payload is from index 2 up to -2 (excluding checksum and end)
-        payload = packet[2:-2]
-        recv_checksum = packet[-2]
+        payload = packet[2:]
+        # recv_checksum = packet[-2]
         
         # Verify End Byte
-        if packet[-1] != END_BYTE:
-            print(f"[ERROR] Invalid End Byte: {hex(packet[-1])}")
-            return
+        # if packet[-1] != END_BYTE:
+        #     print(f"[ERROR] Invalid End Byte: {hex(packet[-1])}")
+        #     return
 
-        calc_checksum = 0
-        for b in packet[1:-2]: # CMD + PAYLOAD
-            calc_checksum ^= b
+        # calc_checksum = 0
+        # for b in packet[1:-2]: # CMD + PAYLOAD
+        #     calc_checksum ^= b
         
-        if recv_checksum != calc_checksum:
-            print(f"[ERROR] Checksum mismatch! Recv: {hex(recv_checksum)}, Calc: {hex(calc_checksum)}")
-            return
+        # if recv_checksum != calc_checksum:
+        #     print(f"[ERROR] Checksum mismatch! Recv: {hex(recv_checksum)}, Calc: {hex(calc_checksum)}")
+        #     return
         
         if cmd == 0xAA:
             print("[DEBUG] Received ACK packet")

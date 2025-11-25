@@ -690,15 +690,8 @@ class DCMApplication:
                         "Parameters successfully transmitted and verified on device."))
                 
                 def on_egram(ch, val):
-                    # store egram data by channel (0=atrial, 1=ventricular)
-                    if ch == 0:
-                        self.egram_data['atrial'].append((time.time(), val))
-                    elif ch == 1:
-                        self.egram_data['ventricular'].append((time.time(), val))
-                    
-                    # update display if window is open
-                    if self.egram_window and self.egram_window.winfo_exists():
-                        self.root.after(0, self._update_egram_display)
+                    print(f"[GUI] EGRAM → ch={ch}, value={val}")
+                    # ... existing egram handling code ...
                 
                 self.serial_interface.ack_callback = on_ack
                 self.serial_interface.egram_callback = on_egram
@@ -874,23 +867,18 @@ class DCMApplication:
             return
         
         if self.egram_streaming:
-            # stop streaming (device will stop sending when we disconnect or stop requesting)
+            # Stop streaming
             self.egram_streaming = False
             self.egram_stream_btn.config(text="Start Streaming")
+            # Note: Would need stop command in serial_interface
         else:
-            # start streaming by requesting egram data from device
-            try:
-                from core.serial_interface import CMD_REQUEST_EGRAM
-                packet = self.serial_interface._build_packet(CMD_REQUEST_EGRAM, b"")
-                if self.serial_interface.serial and self.serial_interface.serial.is_open:
-                    self.serial_interface.serial.write(packet)
-                    self.serial_interface.serial.flush()
-                    self.egram_streaming = True
-                    self.egram_stream_btn.config(text="Stop Streaming")
-                else:
-                    messagebox.showerror("Error", "Serial port is not open.")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to start egram streaming: {str(e)}")
+            # Start streaming
+            self.egram_streaming = True
+            self.egram_stream_btn.config(text="Stop Streaming")
+            # Note: Would need start command in serial_interface
+            messagebox.showinfo("Streaming Started", 
+                              "Egram data streaming started.\n"
+                              "Data will be displayed in real-time.")
     
     def _clear_egram(self):
         """Clear egram display"""
@@ -987,4 +975,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

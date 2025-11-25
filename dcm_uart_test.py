@@ -26,7 +26,7 @@ TEST_PARAMS = {
     "rate_smoothing": 0
 }
 
-TEST_MODE_ID = 0 # VOO
+TEST_MODE_ID = 8 # VOO
 
 def on_ack():
     print("[MCU] ACK received")

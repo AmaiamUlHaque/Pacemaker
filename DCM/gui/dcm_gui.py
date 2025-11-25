@@ -78,7 +78,7 @@ class DCMApplication:
                 ventricular_amp=3.5, ventricular_width=1, ventricular_sensitivity=2.5,
                 VRP=320,
                 activity_threshold=4, reaction_time=30, recovery_time=5, response_factor=8,
-                atr_cmp_ref_pwm=0, vent_cmp_ref_pwm=0
+                atr_cmp_ref_pwm=60, vent_cmp_ref_pwm=90
             )
     
     def clear_window(self):
@@ -640,13 +640,28 @@ class DCMApplication:
             # Connect
             port = self.port_var.get()
             try:
-                self.serial_interface = SerialInterface(port, baudrate=57600)
+                self.serial_interface = SerialInterface(port, baudrate=115200)
                 self.serial_interface.connect()
                 
                 # Set up callbacks
-                self.serial_interface.ack_callback = self._on_parameter_ack
-                self.serial_interface.egram_callback = self._on_egram_data
+               # self.serial_interface.ack_callback = self._on_parameter_ack
+                #self.serial_interface.egram_callback = self._on_egram_data
+             
+    # ... existing code ...
+    
+                # Set up callbacks
+                def on_ack():
+                    print("[GUI] ACK received from device")
+                    self.root.after(0, lambda: messagebox.showinfo("Success", 
+                        "Parameters successfully transmitted and verified on device."))
                 
+                def on_egram(ch, val):
+                    print(f"[GUI] EGRAM → ch={ch}, value={val}")
+                    # ... existing egram handling code ...
+                
+                self.serial_interface.ack_callback = on_ack
+                self.serial_interface.egram_callback = on_egram
+    # ... rest of method ...
                 self.is_connected = True
                 self.serial_port = port
                 self.connect_btn.config(text="Disconnect")
@@ -657,21 +672,21 @@ class DCMApplication:
                 messagebox.showerror("Connection Error", f"Failed to connect to {port}:\n{str(e)}")
                 self.is_connected = False
     
-    def _on_parameter_ack(self):
-        """Callback when parameter transmission is acknowledged"""
-        self.root.after(0, lambda: messagebox.showinfo("Success", 
-            "Parameters successfully transmitted and verified on device."))
+    # def _on_parameter_ack(self):
+    #     """Callback when parameter transmission is acknowledged"""
+    #     self.root.after(0, lambda: messagebox.showinfo("Success", 
+    #         "Parameters successfully transmitted and verified on device."))
     
-    def _on_egram_data(self, channel, value):
-        """Callback when egram data is received"""
-        if channel == 0:  # Atrial
-            self.egram_data['atrial'].append((time.time(), value))
-        elif channel == 1:  # Ventricular
-            self.egram_data['ventricular'].append((time.time(), value))
+    # def _on_egram_data(self, channel, value):
+    #     """Callback when egram data is received"""
+    #     if channel == 0:  # Atrial
+    #         self.egram_data['atrial'].append((time.time(), value))
+    #     elif channel == 1:  # Ventricular
+    #         self.egram_data['ventricular'].append((time.time(), value))
         
-        # Update egram display if window is open
-        if self.egram_window and self.egram_window.winfo_exists():
-            self.root.after(0, self._update_egram_display)
+    #     # Update egram display if window is open
+    #     if self.egram_window and self.egram_window.winfo_exists():
+    #         self.root.after(0, self._update_egram_display)
     
     def _transmit_parameters(self):
         """Transmit parameters to the pacemaker device"""
@@ -684,39 +699,51 @@ class DCMApplication:
             messagebox.showwarning("No Mode Selected", 
                                  "Please select a pacing mode before transmitting.")
             return
-        
+        if not self.serial_interface.serial or not self.serial_interface.serial.is_open:
+            messagebox.showerror("Connection Error", 
+                           "Serial port is not open. Please reconnect.")
+            return
         try:
             # Validate parameters first
             self._validate_mode_parameters(self.current_mode)
             
-            # Convert parameters to format expected by serial interface
+           # Use the same parameter structure as dcm_uart_test.py
             params_dict = {
-                "MODE": mode_id(self.current_mode),
                 "ARP": self.parameters.ARP,
                 "VRP": self.parameters.VRP,
-                "ATR_AMPLITUDE": self.parameters.atrial_amp,
-                "VENT_AMPLITUDE": self.parameters.ventricular_amp,
-                "ATR_PULSEWIDTH": self.parameters.atrial_width,
-                "VENT_PULSEWIDTH": self.parameters.ventricular_width,
-                "ATR_CMP_REF_PWM": self.parameters.atr_cmp_ref_pwm,
-                "VENT_CMP_REF_PWM": self.parameters.vent_cmp_ref_pwm,
-                "REACTION_TIME": self.parameters.reaction_time,
-                "RECOVERY_TIME": self.parameters.recovery_time,
+                "atrial_amp": self.parameters.atrial_amp,
+                "ventricular_amp": self.parameters.ventricular_amp,
+                "atrial_width": self.parameters.atrial_width,
+                "ventricular_width": self.parameters.ventricular_width,
+                "atr_cmp_ref_pwm": self.parameters.atr_cmp_ref_pwm,
+                "vent_cmp_ref_pwm": self.parameters.vent_cmp_ref_pwm,
+                "reaction_time": self.parameters.reaction_time,
+                "recovery_time": self.parameters.recovery_time,
                 "PVARP": self.parameters.PVARP,
-                "FIXED_AV_DELAY": self.parameters.AV_delay,
-                "RESPONSE_FACTOR": self.parameters.response_factor,
-                "ACTIVITY_THRESHOLD": self.parameters.activity_threshold,
-                "UPPER_RATE_LIMIT": self.parameters.URL,
-                "LOWER_RATE_LIMIT": self.parameters.LRL,
-                "MAXIMUM_SENSOR_RATE": self.parameters.MSR,
-                "RATE_SMOOTHING": self.parameters.rate_smoothing
+                "AV_delay": self.parameters.AV_delay,
+                "response_factor": self.parameters.response_factor,
+                "activity_threshold": self.parameters.activity_threshold,
+                "LRL": self.parameters.LRL,
+                "URL": self.parameters.URL,
+                "MSR": self.parameters.MSR,
+                "rate_smoothing": self.parameters.rate_smoothing
             }
-            
-            self.serial_interface.send_parameters(params_dict)
+
+            # Use the actual current mode
+            current_mode_id = mode_id(self.current_mode)
+
+            print(f"[GUI DEBUG] Sending parameters for mode {self.current_mode.value} (ID: {current_mode_id})")
+            print(f"[GUI DEBUG] Parameters: {params_dict}")
+
+            self.serial_interface.send_parameters(params_dict, current_mode_id)
+
+    
+            #self.serial_interface.send_parameters(params_dict,mode_id(self.current_mode))
             messagebox.showinfo("Transmitted", 
                               "Parameters transmitted to device.\n"
                               "Waiting for verification...")
-            
+            print(mode_id(self.current_mode))
+            print(self.current_mode)
         except ValueError as e:
             messagebox.showerror("Validation Error", str(e))
         except Exception as e:

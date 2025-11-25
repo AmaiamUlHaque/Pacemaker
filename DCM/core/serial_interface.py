@@ -66,8 +66,8 @@ class SerialInterface:
             mode_id_val,                            # MODE
             get_val("ARP"),                         # ARP
             get_val("VRP"),                         # VRP
-            int(get_val("atrial_amp")  ),        # ATR_AMPLITUDE
-            int(get_val("ventricular_amp") ),   # VENT_AMPLITUDE
+            get_val("atrial_amp")  ,        # ATR_AMPLITUDE
+            get_val("ventricular_amp") ,   # VENT_AMPLITUDE
             get_val("atrial_width"),                # ATR_PULSEWIDTH
             get_val("ventricular_width"),           # VENT_PULSEWIDTH
             get_val("atr_cmp_ref_pwm"),             # ATR_CMP_REF_PWM
@@ -93,6 +93,7 @@ class SerialInterface:
         packet = self._build_packet(CMD_SEND_PARAMS,payload)
         print(f"[DEBUG] Sending Parameter Packet: {packet.hex()}")
         self.serial.write(packet)
+        print(f"im here")
     
     def _read_loop(self):
         buffer = bytearray()
@@ -161,41 +162,27 @@ class SerialInterface:
                 time.sleep(1)
                 
             time.sleep(0.001)
-    
-    def _process_packet(self,packet):
+    def _process_packet(self, packet):
         print(f"[DEBUG] Processing packet: {packet.hex()}")
-        if len(packet)<4:
+        if len(packet) < 2:  # Reduced minimum length
             return
         if packet[0] != START_BYTE:
             return
+            
         cmd = packet[1]
-        # length is no longer in packet
-        # payload is from index 2 up to -2 (excluding checksum and end)
         payload = packet[2:]
-        # recv_checksum = packet[-2]
         
-        # Verify End Byte
-        # if packet[-1] != END_BYTE:
-        #     print(f"[ERROR] Invalid End Byte: {hex(packet[-1])}")
-        #     return
-
-        # calc_checksum = 0
-        # for b in packet[1:-2]: # CMD + PAYLOAD
-        #     calc_checksum ^= b
-        
-        # if recv_checksum != calc_checksum:
-        #     print(f"[ERROR] Checksum mismatch! Recv: {hex(recv_checksum)}, Calc: {hex(calc_checksum)}")
-        #     return
+        # REMOVE THIS BLOCK - don't send ACK for parameter commands
+        # elif cmd == CMD_SEND_PARAMS:
+        #     ack = self._build_packet(0xAA, b"")
+        #     if self.serial:
+        #         print(f"[DEBUG] Sending ACK: {ack.hex()}")
+        #         self.serial.write(ack)
         
         if cmd == 0xAA:
             print("[DEBUG] Received ACK packet")
             if self.ack_callback:
                 self.ack_callback()
-        elif cmd == CMD_SEND_PARAMS:
-            ack = self._build_packet(0xAA, b"")
-            if self.serial:
-                print(f"[DEBUG] Sending ACK: {ack.hex()}")
-                self.serial.write(ack)
         elif cmd == 0xE0:
             if self.egram_callback:
                 i = 0
@@ -204,6 +191,48 @@ class SerialInterface:
                     val = payload[i+1] | (payload[i+2] << 8)
                     self.egram_callback(ch, val)
                     i += 3
+        # def _process_packet(self,packet):
+    #     print(f"[DEBUG] Processing packet: {packet.hex()}")
+    #     if len(packet)<4:
+    #         return
+    #     if packet[0] != START_BYTE:
+    #         return
+    #     cmd = packet[1]
+    #     # length is no longer in packet
+    #     # payload is from index 2 up to -2 (excluding checksum and end)
+    #     payload = packet[2:]
+    #     # recv_checksum = packet[-2]
+        
+    #     # Verify End Byte
+    #     # if packet[-1] != END_BYTE:
+    #     #     print(f"[ERROR] Invalid End Byte: {hex(packet[-1])}")
+    #     #     return
+
+    #     # calc_checksum = 0
+    #     # for b in packet[1:-2]: # CMD + PAYLOAD
+    #     #     calc_checksum ^= b
+        
+    #     # if recv_checksum != calc_checksum:
+    #     #     print(f"[ERROR] Checksum mismatch! Recv: {hex(recv_checksum)}, Calc: {hex(calc_checksum)}")
+    #     #     return
+        
+    #     if cmd == 0xAA:
+    #         print("[DEBUG] Received ACK packet")
+    #         if self.ack_callback:
+    #             self.ack_callback()
+    #     elif cmd == CMD_SEND_PARAMS:
+    #         ack = self._build_packet(0xAA, b"")
+    #         if self.serial:
+    #             print(f"[DEBUG] Sending ACK: {ack.hex()}")
+    #             self.serial.write(ack)
+    #     elif cmd == 0xE0:
+    #         if self.egram_callback:
+    #             i = 0
+    #             while i + 2 < len(payload):
+    #                 ch = payload[i]
+    #                 val = payload[i+1] | (payload[i+2] << 8)
+    #                 self.egram_callback(ch, val)
+    #                 i += 3
             
         
     
